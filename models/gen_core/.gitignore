@@ -1,0 +1,14 @@
+**/.DS_Store
+*.pth
+*.pyc
+*.pyo
+*.log
+*.tmp
+*.pkl
+*_local*
+__pycache__/
+.idea/
+output/
+test/*.jpg
+local/
+.DS_Store/

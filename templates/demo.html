@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工业面板监测平台</title>
+    <!-- 外部依赖 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    
+    <!-- Tailwind 配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        industrial: {
+                            light: '#f8fafc',
+                            lighter: '#ffffff',
+                            primary: '#2563eb',
+                            secondary: '#3b82f6',
+                            success: '#16a34a',
+                            warning: '#f97316',
+                            danger: '#dc2626',
+                            info: '#0284c7',
+                            neutral: '#64748b',
+                            border: '#e2e8f0',
+                            text: '#334155',
+                            textLight: '#64748b'
+                        },
+                    },
+                    fontFamily: {
+                        industrial: ['Roboto', 'sans-serif', 'monospace'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- 自定义工具类 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .panel-shadow {
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            }
+            .gauge-container {
+                position: relative;
+                width: 120px;
+                height: 120px;
+            }
+            .scrollbar-thin {
+                scrollbar-width: thin;
+            }
+            .scrollbar-thin::-webkit-scrollbar {
+                width: 4px;
+            }
+            .scrollbar-thin::-webkit-scrollbar-thumb {
+                background-color: #94a3b8;
+                border-radius: 2px;
+            }
+        }
+    </style>
+
+    
+    <style>
+        body {
+            background-color: #f1f5f9;
+            background-image: 
+                linear-gradient(rgba(226, 232, 240, 0.5) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(226, 232, 240, 0.5) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .animate-pulse-slow {
+            animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .grid-industrial {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+        /* 必须添加！否则选中后无视觉反馈 */
+        .template-row-selected {
+        background-color: #f0f7ff; /* 浅色背景（适配亮色主题） */
+        border-left: 3px solid #16a34a; /* 左侧高亮边框（可选，增强视觉） */
+        }
+    </style>
+</head>
+<body class="font-industrial text-industrial-text min-h-screen">
+    <!-- 顶部导航栏 -->
+    <header class="bg-industrial-lighter border-b border-industrial-border sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+            <!-- 平台Logo -->
+            <div class="flex items-center space-x-3">
+                <div class="bg-industrial-primary p-0.5 rounded-md w-12 h-12 flex items-center justify-center">
+                    <img src="..\\static\\logo_withouttext.png" alt="平台Logo"  class="w-full h-full object-contain">
+                </div>
+                <div class="bg-white p-2 rounded-md w-30 h-12 flex items-center justify-center border border-industrial-border">
+                    <img src="{{ url_for('static', filename='TJ_logo.png') }}" alt="平台Logo"  class="w-full h-full object-contain">
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-industrial-text">工业面板监测平台 V1.0.0</h1>
+                    <p class="text-xs text-industrial-textLight">实时监测 · 智能分析 · 精准识别</p>
+                </div>
+            </div>
+            
+            <!-- 系统状态 -->
+            <div class="flex items-center space-x-6">
+                <div class="flex items-center">
+                    <span id="systemLight" class="inline-block w-2 h-2 bg-industrial-success rounded-full mr-2 animate-pulse"></span>
+                    <span id="systemStatus" class="text-sm">系统运行中</span>
+                </div>
+                <div class="text-sm text-industrial-textLight" id="systemTime">2025-11-26 14:30:45</div>
+                <div class="relative">
+                    <button class="bg-industrial-primary/10 hover:bg-industrial-primary/20 p-2 rounded-full transition-colors">
+                        <i class="fa fa-bell-o text-industrial-text"></i>
+                        <span class="absolute top-1 right-1 w-2 h-2 bg-industrial-danger rounded-full"></span>
+                    </button>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <img src="{{ url_for('static', filename='V4R.png') }}" alt="用户头像" class="w-8 h-8 rounded-full border border-industrial-border">
+                    <span class="text-sm hidden md:inline">管理员</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- 快速操作栏 -->
+        <div class="bg-industrial-lighter panel-shadow rounded-lg p-4 mb-6 border border-industrial-border">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <!-- 数据源选择 -->
+                <div class="flex items-center space-x-3">
+                    <label class="text-sm text-industrial-text">数据源：</label>
+                    <button id="cameraBtn" onclick="ctrlCamera()" class="bg-industrial-primary hover:bg-industrial-secondary text-white px-4 py-2 rounded-md text-sm flex items-center transition-colors">
+                        <i class="fa fa-video-camera mr-2"></i>摄像头
+                    </button>
+                <!-- 一键选择+上传+播放按钮 -->
+                <div class="relative">
+                    <label class="bg-industrial-light hover:bg-gray-200 px-4 py-2 rounded-md text-sm flex items-center cursor-pointer transition-colors border border-industrial-border">
+                        <i class="fa fa-file-video-o mr-2"></i>本地视频
+                    </label>
+                    <input type="file" id="localVideo" accept="video/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="uploadAndPlayVideo()">
+                </div>
+                    <!-- <span id="sourceStatus" class="text-sm text-industrial-textLight">未选择数据源</span> -->
+                </div>
+                
+                <!-- 核心操作按钮 -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex items-center">
+                        <!-- <label class="text-sm text-industrial-textLight mr-2">缩放：</label> -->
+                        <select onchange="switchModel(this.value)" id="modelSelect" class="bg-white border border-industrial-border rounded-md px-7 py-2 text-sm text-industrial-text">
+                            <option value="PANEL">面板模型</option>
+                            <option value="GENERAL">通用模型</option>
+                        </select>
+                    </div>
+                    <button id="freezeBtn" onclick="ctrlFreezeFrame()" class="bg-industrial-info hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm flex items-center transition-colors">
+                        <i class="fa fa-pause-circle mr-2"></i>冻结帧
+                    </button>
+                    <!-- 新增：处理图像按钮（默认禁用，冻结后启用） -->
+                    <button id="processImgBtn" onclick="processFrozenImage()" class="bg-industrial-secondary/70 hover:bg-industrial-secondary text-white px-4 py-2 rounded-md text-sm flex items-center transition-colors">
+                        <i class="fa fa-cogs mr-1"></i>处理图像
+                    </button>
+                    <button id="spottingBtn" onclick="ctrlSpotting()" class="bg-industrial-success hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm flex items-center transition-colors">
+                        <i class="fa fa-cogs mr-2"></i>启动识别
+                    </button>
+                    <button id="trackBtn" onclick="ctrlTrack()" class="bg-industrial-warning hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm flex items-center transition-colors">
+                        <i class="fa fa-crosshairs mr-2"></i>启动跟踪
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 监测核心区（视频+数据） -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- 视频监控区（占2列） -->
+            <div class="lg:col-span-2 bg-industrial-lighter panel-shadow rounded-lg overflow-hidden border border-industrial-border">
+                <div class="bg-industrial-light px-4 py-3 border-b border-industrial-border flex items-center justify-between">
+                    <h2 class="text-lg font-semibold flex items-center text-industrial-text">
+                        <i class="fa fa-eye mr-2 text-industrial-primary"></i>实时监控
+                    </h2>
+                    <div class="flex items-center space-x-3">
+                        <!-- <span id="videoStatus" class="text-sm text-industrial-textLight">未连接</span> -->
+                        <div class="flex items-center space-x-1">
+                            <button onclick="toggleFullscreen()" class="bg-white hover:bg-gray-100 p-1.5 rounded transition-colors border border-industrial-border" title="全屏">
+                                <i class="fa fa-expand text-sm text-industrial-text"></i>
+                            </button>
+                            <button id="toggleDetectionBoxBtn" onclick="toggleDetectionBox()" class="bg-white hover:bg-gray-100 p-1.5 rounded transition-colors border border-industrial-border" title="显示监测框">
+                                <i class="fa fa-square-o text-sm text-industrial-text"></i>
+                            </button>
+                            <button onclick="cutFrame()" class="bg-white hover:bg-gray-100 p-1.5 rounded transition-colors border border-industrial-border" title="截图">
+                                <i class="fa fa-crop text-sm text-industrial-text"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 relative">
+                    <!-- 视频/摄像头容器 -->
+                    <div class="aspect-video bg-gray-100 rounded-lg overflow-hidden relative border border-industrial-border">
+                        <img id="videoFeed" class="absolute top-0 left-0 w-full h-full object-contain" src="static/panel.jpg" alt="监控画面">
+                        <canvas id="freezeCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                        <!-- 流前端绘制层 -->
+                        <canvas id="draw-canvas" class="absolute top-0 left-0 w-full h-full pointer-events: none"></canvas>
+                        <!-- 上层：冻结推理结果叠加层（默认隐藏，处理后显示） -->
+                        <canvas id="resultOverlayCanvas" class="absolute top-0 left-0 w-full h-full hidden"></canvas>
+                        <!-- 未连接提示 -->
+                        <div id="videoPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-industrial-textLight">
+                            <i class="fa fa-video-camera text-5xl mb-3"></i>
+                            <p>未选择数据源，请连接摄像头或加载本地视频</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 视频控制栏 -->
+                    <div class="mt-4 flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <div class="flex items-center">
+                                <label class="text-sm text-industrial-textLight mr-2">缩放：</label>
+                                <select class="bg-white border border-industrial-border rounded px-2 py-1 text-sm text-industrial-text">
+                                    <option>100%</option>
+                                    <option>80%</option>
+                                    <option>60%</option>
+                                </select>
+                            </div>
+                            <div class="flex items-center">
+                                <label class="text-sm text-industrial-textLight mr-2">画质：</label>
+                                <select class="bg-white border border-industrial-border rounded px-2 py-1 text-sm text-industrial-text">
+                                    <option>高清</option>
+                                    <option>标清</option>
+                                    <option>流畅</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button id="toggleResultBtn" onclick="bindToggleResultBtn()" class="bg-white hover:bg-gray-100 px-3 py-1.5 rounded-md text-sm flex items-center transition-colors border border-industrial-border">
+                                <i class="fa fa-eye mr-1 text-industrial-text"></i>显示结果
+                            </button>
+                            <button id="playBtn" 
+                                    onclick="startPlayback()" 
+                                    class="bg-white hover:bg-gray-100 px-3 py-1.5 rounded-md text-sm flex items-center transition-colors border border-industrial-border">
+                                <i class="fa fa-play mr-1 text-industrial-text"></i>开始播放
+                            </button>
+                            <button id="stopBtn" onclick="stopPlayback()" class="bg-white hover:bg-gray-100 px-3 py-1.5 rounded-md text-sm flex items-center transition-colors border border-industrial-border">
+                                <i class="fa fa-stop mr-2 text-industrial-text"></i>停止播放
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 数据监测区（占1列） -->
+            <div class="bg-industrial-lighter panel-shadow rounded-lg overflow-hidden border border-industrial-border">
+                <div class="bg-industrial-light px-4 py-3 border-b border-industrial-border">
+                    <h2 class="text-lg font-semibold flex items-center text-industrial-text">
+                        <i class="fa fa-bar-chart mr-2 text-industrial-primary"></i>数据监测
+                    </h2>
+                </div>
+                <div class="p-4">
+                    <!-- 关键指标卡片 -->
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div class="bg-white rounded-lg p-3 border border-industrial-border">
+                            <p class="text-xs text-industrial-textLight mb-1">检测目标数</p>
+                            <div class="flex items-end justify-between">
+                                <span class="text-2xl font-bold text-industrial-text" id="targetCount">0</span>
+                                <span class="text-xs text-industrial-success"><i class="fa fa-arrow-up"></i> 0%</span>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg p-3 border border-industrial-border">
+                            <p class="text-xs text-industrial-textLight mb-1">跟踪目标数</p>
+                            <div class="flex items-end justify-between">
+                                <span class="text-2xl font-bold text-industrial-text" id="trackCount">0</span>
+                                <span class="text-xs text-industrial-textLight"><i class="fa fa-minus"></i> 0%</span>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg p-3 border border-industrial-border">
+                            <p class="text-xs text-industrial-textLight mb-1">视频帧率</p>
+                            <div class="flex items-end justify-between">
+                                <span class="text-2xl font-bold text-industrial-text" id="inferTime">0</span>
+                                <span class="text-xs text-industrial-textLight">fps</span>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg p-3 border border-industrial-border">
+                            <p class="text-xs text-industrial-textLight mb-1">告警次数</p>
+                            <div class="flex items-end justify-between">
+                                <span class="text-2xl font-bold text-industrial-warning" id="alarmCount">0</span>
+                                <span class="text-xs text-industrial-danger"><i class="fa fa-exclamation-circle"></i></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 趋势图表 -->
+                    <div class="bg-white rounded-lg p-3 border border-industrial-border mb-4">
+                        <p class="text-sm text-industrial-text mb-2">字符识别精度趋势</p>
+                        <div class="h-40">
+                            <canvas id="accuracyChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- 数值仪表盘 -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-white rounded-lg p-3 border border-industrial-border flex flex-col items-center justify-center">
+                            <p class="text-xs text-industrial-textLight mb-1">当前平均置信度</p>
+                            <div class="gauge-container">
+                                <canvas id="confidenceGauge"></canvas>
+                            </div>
+                            <span class="text-lg font-bold mt-2 text-industrial-text" id="confidenceValue">0%</span>
+                        </div>
+                        <div class="bg-white rounded-lg p-3 border border-industrial-border flex flex-col items-center justify-center">
+                            <p class="text-xs text-industrial-textLight mb-1">跟踪稳定性</p>
+                            <div class="gauge-container">
+                                <canvas id="stabilityGauge"></canvas>
+                            </div>
+                            <span class="text-lg font-bold mt-2 text-industrial-success" id="stabilityValue">0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 配置与结果区 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- 推理结果表格（占2列） -->
+            <div class="lg:col-span-2 bg-industrial-lighter panel-shadow rounded-lg overflow-hidden border border-industrial-border">
+                <div class="bg-industrial-light px-4 py-3 border-b border-industrial-border flex items-center justify-between">
+                    <h2 class="text-lg font-semibold flex items-center text-industrial-text">
+                        <i class="fa fa-table mr-2 text-industrial-primary"></i>推理结果配置
+                    </h2>
+                    <div class="flex items-center space-x-2">
+                        <button id="btnBatchLabel" class="bg-industrial-info/80 hover:bg-industrial-info text-white px-3 py-1.5 rounded-md text-sm flex items-center transition-colors">
+                            <i class="fa fa-tags mr-1"></i>批量标号
+                        </button>
+                        <button id="btnClearConfig" class="bg-white hover:bg-gray-100 px-3 py-1.5 rounded-md text-sm flex items-center transition-colors border border-industrial-border">
+                            <i class="fa fa-trash-o mr-1 text-industrial-text"></i>清空配置
+                        </button>
+                    </div>
+                </div>
+                <div class="p-4 overflow-hidden">
+                    <div class="overflow-x-auto scrollbar-thin">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-industrial-border bg-industrial-light">
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text w-12">选择</th>
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text">推理ID</th>
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text">跟踪ID</th>
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text">检测内容</th>
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text">用户标签</th>
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text">数值上限</th>
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text">数值下限</th>
+                                    <th class="py-3 px-4 text-left font-medium text-industrial-text w-24">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultTableBody">
+                                <!-- 空状态 -->
+                                <tr>
+                                    <td colspan="8" class="py-8 text-center text-industrial-textLight">
+                                        <i class="fa fa-search-minus text-2xl mb-2"></i>
+                                        <p>暂无推理结果，请先执行推理</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 模板管理+告警中心（占1列） -->
+            <div class="flex flex-col gap-6">
+                <!-- 模板管理 -->
+                <div class="bg-industrial-lighter panel-shadow rounded-lg overflow-hidden flex-1 border border-industrial-border">
+                    <div class="bg-industrial-light px-4 py-3 border-b border-industrial-border">
+                        <h2 class="text-lg font-semibold flex items-center text-industrial-text">
+                            <i class="fa fa-cubes mr-2 text-industrial-primary"></i>模板管理
+                        </h2>
+                    </div>
+                    <div class="p-4">
+                        <div class="mb-4">
+                            <input type="text" id="templateName" placeholder="输入模板名称" class="w-full bg-white border border-industrial-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-industrial-primary text-industrial-text">
+                            <div class="flex gap-2 mt-2">
+                                <button id="btnSaveTemplate" onclick="saveTemplateBtn()" class="flex-1 bg-industrial-secondary hover:bg-blue-800 text-white px-3 py-2 rounded-md text-sm flex items-center justify-center transition-colors">
+                                    <i class="fa fa-save mr-1"></i>保存模板
+                                </button>
+                                <button id="btnLoadTemplate" onclick="loadTemplateBtn()" class="flex-1 bg-white hover:bg-gray-100 px-3 py-2 rounded-md text-sm flex items-center justify-center transition-colors border border-industrial-border">
+                                    <i class="fa fa-load mr-1 text-industrial-text"></i>校准模板
+                                </button>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg p-3 border border-industrial-border">
+                            <p class="text-sm text-industrial-text mb-2">已保存模板</p>
+                            <div id="templateList" class="space-y-2 max-h-40 overflow-y-auto scrollbar-thin">
+                                <div class="text-industrial-textLight text-center py-2">暂无保存的模板</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 告警中心 -->
+                <div class="bg-industrial-lighter panel-shadow rounded-lg overflow-hidden border border-industrial-border">
+                    <div class="bg-industrial-light px-4 py-3 border-b border-industrial-border flex items-center justify-between">
+                        <h2 class="text-lg font-semibold flex items-center text-industrial-text">
+                            <i class="fa fa-bell mr-2 text-industrial-primary"></i>告警中心
+                        </h2>
+                        <button class="text-xs text-industrial-textLight hover:text-industrial-text">清空全部</button>
+                    </div>
+                    <div class="p-4">
+                        <div id="alarmList" class="space-y-2 max-h-40 overflow-y-auto scrollbar-thin">
+                            <!-- 告警示例 -->
+                            <div class="bg-industrial-danger/5 border border-industrial-danger/20 rounded-md p-2 text-sm">
+                                <div class="flex items-start">
+                                    <i class="fa fa-exclamation-triangle text-industrial-danger mt-0.5 mr-2"></i>
+                                    <div>
+                                        <p class="font-medium text-industrial-text">数值超限告警</p>
+                                        <p class="text-xs text-industrial-textLight">目标[编号1]数值25.8超出范围[0-20]</p>
+                                        <p class="text-xs text-gray-400 mt-1">2025-11-21 15:28:36</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-industrial-warning/5 border border-industrial-warning/20 rounded-md p-2 text-sm">
+                                <div class="flex items-start">
+                                    <i class="fa fa-exclamation-circle text-industrial-warning mt-0.5 mr-2"></i>
+                                    <div>
+                                        <p class="font-medium text-industrial-text">跟踪稳定性低</p>
+                                        <p class="text-xs text-industrial-textLight">目标[编号2]跟踪稳定性降至65%</p>
+                                        <p class="text-xs text-gray-400 mt-1">2025-11-21 15:25:12</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-industrial-lighter border-t border-industrial-border py-4 mt-8">
+        <div class="container mx-auto px-4 text-center text-sm text-industrial-textLight">
+            <p>© 2025 工业面板监测平台 | 版本号：V1.0.0 | 技术支持：V4R实验室</p>
+        </div>
+    </footer>
+
+    <!-- 模态框：模板加载 -->
+    <div id="loadTemplateModal" class="fixed inset-0 bg-black/20 flex items-center justify-center z-50 hidden">
+        <div class="bg-industrial-lighter panel-shadow rounded-lg w-full max-w-md mx-4 border border-industrial-border">
+            <div class="bg-industrial-light px-4 py-3 border-b border-industrial-border flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-industrial-text">加载模板</h3>
+                <button id="closeModal" class="text-industrial-textLight hover:text-industrial-text">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="p-4 max-h-60 overflow-y-auto scrollbar-thin">
+                <div id="modalTemplateList" class="space-y-2">
+                    <!-- 模板列表将动态加载 -->
+                    <div class="text-industrial-textLight text-center py-4">暂无保存的模板</div>
+                </div>
+            </div>
+            <div class="px-4 py-3 border-t border-industrial-border flex justify-end">
+                <button id="cancelLoad" class="bg-white hover:bg-gray-100 px-4 py-2 rounded-md text-sm mr-2 transition-colors border border-industrial-border">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="..\\static\\main.js"> </script>
+</body>
+</html>
